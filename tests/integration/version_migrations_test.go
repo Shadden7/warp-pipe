@@ -180,7 +180,7 @@ func insertTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 
 	conn, err := pgx.Connect(config)
 	if err != nil {
-		t.Logf("%s: could not connected to source database to insert: %v", t.Name(), err)
+		t.Fatalf("%s: could not connected to source database to insert: %v", t.Name(), err)
 		return
 	}
 	defer conn.Close()
@@ -207,7 +207,7 @@ func updateTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 
 	conn, err := pgx.Connect(config)
 	if err != nil {
-		t.Logf("%s: could not connected to source database to update: %v", t.Name(), err)
+		t.Fatalf("%s: could not connected to source database to update: %v", t.Name(), err)
 		return
 	}
 	defer conn.Close()
@@ -228,7 +228,7 @@ func deleteTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 
 	conn, err := pgx.Connect(config)
 	if err != nil {
-		t.Logf("%s: Could not connect to source db to delete data", t.Name())
+		t.Fatalf("%s: Could not connect to source db to delete data", t.Name())
 		return
 	}
 	defer conn.Close()
