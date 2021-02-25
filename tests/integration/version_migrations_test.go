@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"sync"
@@ -14,6 +15,10 @@ import (
 
 	warppipe "github.com/perangel/warp-pipe"
 	"github.com/perangel/warp-pipe/db"
+)
+
+var (
+	runIntegrationTests = flag.Bool("integration", false, "run integration tests (default false)")
 )
 
 type testData struct {
@@ -222,6 +227,13 @@ func deleteTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 }
 
 func TestVersionMigration(t *testing.T) {
+	flag.Parse() // Parse() must be called explicitly, see TestMain() docs.
+
+	if !*runIntegrationTests {
+		t.Log("Integration tests disabled. Use -integration flag to enable.")
+		return
+	}
+
 	testCases := []struct {
 		name   string
 		source string
