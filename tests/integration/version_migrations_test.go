@@ -175,7 +175,7 @@ func testRows() []testData {
 	}
 }
 
-func insertTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
+func insertTestData(t *testing.T, config pgx.ConnConfig, nRowsX3 int, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	conn, err := pgx.Connect(config)
@@ -190,8 +190,7 @@ func insertTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 			"testTable" (type_text, type_date, type_boolean, type_json, type_jsonb, type_array)
 		VALUES ($1, $2, $3, $4, $5, $6);`
 
-	nRows := 50
-	for i := 0; i < nRows; i++ {
+	for i := 0; i < nRowsX3; i++ {
 		rows := testRows()
 		for _, row := range rows {
 			_, err = conn.Exec(insertSQL, row.text, row.date, row.boolean, row.json, row.jsonb, row.array)
@@ -202,7 +201,7 @@ func insertTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 	}
 }
 
-func updateTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
+func updateTestData(t *testing.T, config pgx.ConnConfig, nRows int, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	conn, err := pgx.Connect(config)
@@ -212,18 +211,20 @@ func updateTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 	}
 	defer conn.Close()
 
-	// update one field in one row
+	// update one field in a random row
 	updateSQL := `
-		UPDATE "testTable" set type_boolean = true 
-		WHERE ID IN (SELECT ID FROM "testTable" where type_boolean = false LIMIT 1);`
+		UPDATE "testTable" set type_boolean = NOT type_boolean
+		WHERE ID IN (SELECT ID FROM "testTable" ORDER BY RANDOM() LIMIT 1);`
 
-	_, err = conn.Exec(updateSQL)
-	if err != nil {
-		t.Fatalf("%s: Could not update row in source database: %v", t.Name(), err)
+	for i := 0; i < nRows; i++ {
+		_, err = conn.Exec(updateSQL)
+		if err != nil {
+			t.Fatalf("%s: Could not update row in source database: %v", t.Name(), err)
+		}
 	}
 }
 
-func deleteTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
+func deleteTestData(t *testing.T, config pgx.ConnConfig, nRows int, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	conn, err := pgx.Connect(config)
@@ -233,12 +234,14 @@ func deleteTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 	}
 	defer conn.Close()
 
-	// delete a row
-	deleteSQL := `DELETE FROM "testTable" WHERE ID IN (SELECT ID FROM "testTable" LIMIT 1);`
+	// delete a random row
+	deleteSQL := `DELETE FROM "testTable" WHERE ID IN (SELECT ID FROM "testTable" ORDER BY RANDOM() LIMIT 1);`
 
-	_, err = conn.Exec(deleteSQL)
-	if err != nil {
-		t.Fatalf("%s: Could not delete row in source database: %v", t.Name(), err)
+	for i := 0; i < nRows; i++ {
+		_, err = conn.Exec(deleteSQL)
+		if err != nil {
+			t.Fatalf("%s: Could not delete row in source database: %v", t.Name(), err)
+		}
 	}
 }
 
@@ -308,17 +311,17 @@ func TestVersionMigration(t *testing.T) {
 			workersCount := 20
 			for i := 0; i < workersCount; i++ {
 				insertsWG.Add(1)
-				go insertTestData(t, srcDBConfig, &insertsWG)
+				go insertTestData(t, srcDBConfig, 10, &insertsWG)
 			}
 
 			for i := 0; i < workersCount; i++ {
 				updatesWG.Add(1)
-				go updateTestData(t, srcDBConfig, &updatesWG)
+				go updateTestData(t, srcDBConfig, 30, &updatesWG)
 			}
 
 			for i := 0; i < workersCount; i++ {
 				deletesWG.Add(1)
-				go deleteTestData(t, srcDBConfig, &deletesWG)
+				go deleteTestData(t, srcDBConfig, 30, &deletesWG)
 			}
 
 			// sync source and target with Axon
@@ -339,7 +342,7 @@ func TestVersionMigration(t *testing.T) {
 
 			axon := warppipe.Axon{Config: &axonCfg}
 
-			// first pass sync.
+			t.Log("first pass sync")
 			axon.Run()
 
 			// wait for all our routines to complete
@@ -347,7 +350,7 @@ func TestVersionMigration(t *testing.T) {
 			updatesWG.Wait()
 			deletesWG.Wait()
 
-			// sync one more time to catch any stragglers
+			t.Log("second pass sync. starting from beginning, and catching any stragglers")
 			axon.Run()
 
 			err = axon.Verify(schemas, includeTables, excludeTables)
