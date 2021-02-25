@@ -25,8 +25,8 @@ type testData struct {
 	text    string
 	date    time.Time
 	boolean bool
-	json    string
-	jsonb   string
+	json    []byte
+	jsonb   []byte
 	array   []int32
 }
 
@@ -150,15 +150,29 @@ func createDatabaseContainer(t *testing.T, ctx context.Context, version string, 
 	return container.ID, hostPort, nil
 }
 
-func testRow() *testData {
-	row := testData{}
-	row.text = "a test string"
-	row.boolean = false
-	row.date = time.Now()
-	row.json = `{"name": "Alice", "age": 31, "city": "LA"}`
-	row.jsonb = `{"name": "Bob", "age": 39, "city": "London"}`
-	row.array = []int32{1, 2, 3, 4, 5}
-	return &row
+func testRows() []testData {
+	return []testData{
+		// Nil and empty fields.
+		{},
+		// Empty JSON and slice.
+		{
+			text:    "text",
+			boolean: true,
+			date:    time.Now(),
+			json:    []byte(`{}`),
+			jsonb:   []byte(`{}`),
+			array:   make([]int32, 0),
+		},
+		// Fully populated fields.
+		{
+			text:    "a test string",
+			boolean: true,
+			date:    time.Now(),
+			json:    []byte(`{"name": "Alice", "age": 31, "city": "LA"}`),
+			jsonb:   []byte(`{"name": "Bob", "age": 39, "city": "London"}`),
+			array:   []int32{1, 2, 3, 4, 5},
+		},
+	}
 }
 
 func insertTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
@@ -178,10 +192,12 @@ func insertTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 
 	nRows := 50
 	for i := 0; i < nRows; i++ {
-		row := testRow()
-		_, err = conn.Exec(insertSQL, row.text, row.date, row.boolean, row.json, row.jsonb, row.array)
-		if err != nil {
-			t.Logf("%s: Could not insert row in source database: %v", t.Name(), err)
+		rows := testRows()
+		for _, row := range rows {
+			_, err = conn.Exec(insertSQL, row.text, row.date, row.boolean, row.json, row.jsonb, row.array)
+			if err != nil {
+				t.Fatalf("%s: Could not insert row in source database: %v", t.Name(), err)
+			}
 		}
 	}
 }
@@ -203,7 +219,7 @@ func updateTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 
 	_, err = conn.Exec(updateSQL)
 	if err != nil {
-		t.Logf("%s: Could not update row in source database: %v", t.Name(), err)
+		t.Fatalf("%s: Could not update row in source database: %v", t.Name(), err)
 	}
 }
 
@@ -222,7 +238,7 @@ func deleteTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 
 	_, err = conn.Exec(deleteSQL)
 	if err != nil {
-		t.Logf("%s: Could not delete row in source database: %v", t.Name(), err)
+		t.Fatalf("%s: Could not delete row in source database: %v", t.Name(), err)
 	}
 }
 
