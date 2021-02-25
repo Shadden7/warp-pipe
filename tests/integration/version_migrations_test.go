@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx"
+	"github.com/stretchr/testify/require"
+
 	warppipe "github.com/perangel/warp-pipe"
 	"github.com/perangel/warp-pipe/db"
-	"github.com/stretchr/testify/require"
 )
 
 type testData struct {
@@ -46,7 +47,7 @@ var (
 )
 
 func setupTestSchema(config pgx.ConnConfig) error {
-	//wait until db is ready to obtain connection
+	// wait until db is ready to obtain connection
 	srcReady := waitForPostgresReady(&config)
 	if !srcReady {
 		return fmt.Errorf("database did not become ready in allowed time")
@@ -61,7 +62,7 @@ func setupTestSchema(config pgx.ConnConfig) error {
 	for _, s := range testSchema {
 		_, err = conn.Exec(s)
 		if err != nil {
-			return fmt.Errorf("Test schema installation failed: %v", err)
+			return fmt.Errorf("test schema installation failed: %v", err)
 		}
 	}
 	return nil
@@ -78,6 +79,7 @@ func getFreePort() (int, error) {
 		return 0, err
 	}
 	defer l.Close()
+
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
@@ -86,8 +88,8 @@ func waitForPostgresReady(config *pgx.ConnConfig) bool {
 	for count := 0; count < 30; count++ {
 		conn, err := pgx.Connect(*config)
 		if err == nil {
-			defer conn.Close()
 			connected = true
+			conn.Close()
 			break
 		}
 		time.Sleep(2 * time.Second)
@@ -96,15 +98,18 @@ func waitForPostgresReady(config *pgx.ConnConfig) bool {
 }
 
 func createDatabaseContainer(t *testing.T, ctx context.Context, version string, database string, username string, password string) (string, int, error) {
+	postgresPort := 5432
+
 	docker, err := NewDockerClient()
 	if err != nil {
 		return "", 0, err
 	}
-	postgresPort := 5432
+
 	hostPort, err := getFreePort()
 	if err != nil {
 		return "", 0, errors.New("could not determine a free port")
 	}
+
 	container, err := docker.runContainer(
 		ctx,
 		&ContainerConfig{
@@ -133,7 +138,7 @@ func createDatabaseContainer(t *testing.T, ctx context.Context, version string, 
 
 	t.Cleanup(func() {
 		if err := docker.removeContainer(ctx, container.ID); err != nil {
-			t.Errorf("Could not remove container %s: %w", container.ID, err)
+			t.Errorf("Could not remove container %s: %v", container.ID, err)
 		}
 	})
 
@@ -153,7 +158,7 @@ func testRow() *testData {
 
 func insertTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 	defer wg.Done()
-	nRows := 50
+
 	conn, err := pgx.Connect(config)
 	if err != nil {
 		t.Logf("%s: could not connected to source database to insert: %v", t.Name(), err)
@@ -161,9 +166,12 @@ func insertTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 	}
 	defer conn.Close()
 
-	insertSQL := `INSERT INTO
-	"testTable"(type_text, type_date, type_boolean, type_json, type_jsonb, type_array)
-	VALUES ($1, $2, $3, $4, $5, $6);`
+	insertSQL := `
+		INSERT INTO
+			"testTable" (type_text, type_date, type_boolean, type_json, type_jsonb, type_array)
+		VALUES ($1, $2, $3, $4, $5, $6);`
+
+	nRows := 50
 	for i := 0; i < nRows; i++ {
 		row := testRow()
 		_, err = conn.Exec(insertSQL, row.text, row.date, row.boolean, row.json, row.jsonb, row.array)
@@ -175,6 +183,7 @@ func insertTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 
 func updateTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 	defer wg.Done()
+
 	conn, err := pgx.Connect(config)
 	if err != nil {
 		t.Logf("%s: could not connected to source database to update: %v", t.Name(), err)
@@ -182,9 +191,11 @@ func updateTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 	}
 	defer conn.Close()
 
-	//update one field in one row
-	updateSQL := `UPDATE "testTable" set type_boolean = true 
+	// update one field in one row
+	updateSQL := `
+		UPDATE "testTable" set type_boolean = true 
 		WHERE ID IN (SELECT ID FROM "testTable" where type_boolean = false LIMIT 1);`
+
 	_, err = conn.Exec(updateSQL)
 	if err != nil {
 		t.Logf("%s: Could not update row in source database: %v", t.Name(), err)
@@ -193,6 +204,7 @@ func updateTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 
 func deleteTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 	defer wg.Done()
+
 	conn, err := pgx.Connect(config)
 	if err != nil {
 		t.Logf("%s: Could not connect to source db to delete data", t.Name())
@@ -202,6 +214,7 @@ func deleteTestData(t *testing.T, config pgx.ConnConfig, wg *sync.WaitGroup) {
 
 	// delete a row
 	deleteSQL := `DELETE FROM "testTable" WHERE ID IN (SELECT ID FROM "testTable" LIMIT 1);`
+
 	_, err = conn.Exec(deleteSQL)
 	if err != nil {
 		t.Logf("%s: Could not delete row in source database: %v", t.Name(), err)
@@ -220,11 +233,12 @@ func TestVersionMigration(t *testing.T) {
 			target: "9.6",
 		},
 	}
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			//bring up source and target database containers
+			// bring up source and target database containers
 			_, srcPort, err := createDatabaseContainer(t, ctx, tc.source, dbUser, dbPassword, dbName)
 			require.NoError(t, err)
 			srcDBConfig := pgx.ConnConfig{
@@ -246,15 +260,18 @@ func TestVersionMigration(t *testing.T) {
 				Password: dbPassword,
 				Database: dbName,
 			}
+
 			err = setupTestSchema(targetDBConfig)
 			require.NoError(t, err)
 
 			// setup warp-pipe on source database
 			schemas := []string{"public"}
-			includeTables := []string{}
-			excludeTables := []string{}
+			includeTables := make([]string, 0)
+			excludeTables := make([]string, 0)
+
 			wpConn, err := pgx.Connect(srcDBConfig)
 			require.NoError(t, err)
+
 			err = db.Prepare(wpConn, []string{"public"}, []string{"testTable"}, []string{})
 			require.NoError(t, err)
 
@@ -291,7 +308,10 @@ func TestVersionMigration(t *testing.T) {
 				TargetDBSchema:             "public",
 				ShutdownAfterLastChangeset: true,
 			}
+
 			axon := warppipe.Axon{Config: &axonCfg}
+
+			// first pass sync.
 			axon.Run()
 
 			// wait for all our routines to complete
